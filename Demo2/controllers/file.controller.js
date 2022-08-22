@@ -1,6 +1,7 @@
 const documentModel = require("../models/document.model")
 const segmentModel = require("../models/segment.model")
 const path = require('path')
+const { fileService } = require('../services')
 
 const fs = require("fs")
 const AdmZip = require("adm-zip")
@@ -10,20 +11,21 @@ const convertXMLToJson = require('xml-js')
 const mapToArray = data => Array.isArray(data) ? data : [data];
 
 const handleSavingSegment = (row) => {
-  return new Promise((resolve) => {
-    let newRow = row
+  return new Promise(resolve => {
+    // Khởi tạo row mới với deep copy
+    let newRow = JSON.parse(JSON.stringify(row))
+    // Chỉ lấy mình text
     const text = row?.['w:t']?.['_text']
-    if (text) {
-      segmentModel.create({ text })
-        .then((segment) => {
-          newRow._attributes = newRow._attributes || {}
-          newRow._attributes.key = segment._id.toString()
-          return newRow
-        })
-        .then((newRow) => {
-          resolve(newRow)
-        })
-    }
+    // Nếu không có text trả về row ban đầu
+    if (!text) return resolve(row)
+
+    // Nếu có text => Trả về row mới có gắn ID của segment
+    segmentModel.create({ text })
+      .then(segment => {
+        newRow._attributes = newRow._attributes || {}
+        newRow._attributes.key = segment._id.toString()
+        return resolve(newRow)
+      })
   })
 }
 // Return promise array of rows
@@ -39,13 +41,6 @@ const handleRows = (paragraph) => {
       Promise.all(paragraph['w:r'])
         .then(rows => resolve(rows))
     }
-  })
-}
-
-const handleParagraph = (promiseArrayOfRows) => {
-  return new Promise((resolve, reject) => {
-    Promise.all(promiseArrayOfRows)
-      .then(rows => resolve(rows))
   })
 }
 
@@ -81,7 +76,6 @@ module.exports = {
     // } else {
     //   console.log("Ghi file thanh cong");
     // }
-
     // //create document
     // let originalname= fileUpload.originalname.split(".")
     // // let document= {
@@ -90,79 +84,15 @@ module.exports = {
     //   // path: fileUpload.path,
     //   // pages: docPropsJson?.Properties?.Pages?._text
     // // }
-
-
-
     // // let newDoc= await documentModel.create(document)
-    // // console.log(documentJson)
 
     let document = documentJson['w:document'];
 
-    let documentBody = document['w:body'];
+    let paragraphs = await fileService.handleDocument(document, 'w:p')
+    let tables = await fileService.handleDocument(document, 'w:tbl')
 
-    // Xử lý dọc <w:p> -> Tạo segment -> Gán key=segment._id
-    let paragraphs = mapToArray(documentBody['w:p']);
-    let promiseRowsOfParagraph = []
-    for (let paragraph of paragraphs) {
-      let tmp = handleRows(paragraph)
-      promiseRowsOfParagraph.push(tmp)
-
-      let rows = await (async function(promiseRowsOfParagraph) {
-        for (let rowsPromise of promiseRowsOfParagraph) {
-          const row = await rowsPromise
-          return row
-        }
-      }(promiseRowsOfParagraph))
-      paragraph['w:r'] = rows
-    }
-
-/*
-    const tables = mapToArray(documentBody['w:tbl'])
-
-    tables.forEach(table => {
-      const tableRows = mapToArray(table['w:tr'])
-      for (let tableRow of tableRows) {
-        const tableColumnsInRow = mapToArray(tableRow['w:tc'])
-        for (let tableColumn of tableColumnsInRow) {
-          const paragraphs = mapToArray(tableColumn['w:p'])
-          for (let paragraph of paragraphs) {
-            const rows = mapToArray(paragraph['w:r']);
-            for (const row of rows) {
-              const textObject = row?.['w:t'];
-              const text = textObject?._text
-              if (text) {
-                row._attributes = row._attributes || {}
-                // console.log(text)
-                segmentModel.create({
-                  text,
-                }).then(segment => {
-                  // row._attributes = row._attributes || {}
-                  let id = segment._id.toString()
-                  row._attributes.key = id
-                }).catch(e => {
-                  // console.log(e)
-                })
-                // if (segment) {
-                //   row._attributes = row._attributes || {}
-                //   const id = segment._id.toString()
-                //   row._attributes.key = id
-                //   // console.log(`Id have just added into T:row: ${row._attributes.key}`)
-                // }
-              }
-            }
-          }
-        }
-      }
-    })
-    */
-    // let err = fs.writeFileSync("./result/" + 'test' + ".json", JSON.stringify(documentJson), "utf-8")
-    // if (err) {
-    //   console.log("Ghi file loi: " + err)
-    // } else {
-    //   console.log("Ghi file thanh cong");
-    // }
     return res.status(200).json({
-      paragraphs,
+      document
     })
   }
 }
