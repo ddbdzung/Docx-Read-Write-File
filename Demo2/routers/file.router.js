@@ -22,8 +22,9 @@ const upload= multer({ storage: storage })
 
 router
   .route("/document")
-  .get(asyncHandle(getAllDocument))
-  .post(upload.single("file"), asyncHandle(uploadDocument))
+  // .get(asyncHandle(getAllDocument))
+  // .post(upload.single("file"), asyncHandle(uploadDocument))
+  .get(upload.single("file"), asyncHandle(uploadDocument))
 
 router
   .route("/segment")
