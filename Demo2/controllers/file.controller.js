@@ -162,7 +162,7 @@ module.exports = {
     //   console.log("Ghi file thanh cong");
     // }
     return res.status(200).json({
-      paragraphs,
+      document,
     })
   }
 }
