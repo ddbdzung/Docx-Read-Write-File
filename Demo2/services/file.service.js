@@ -1,6 +1,6 @@
 const segmentModel = require("../models/segment.model")
 const mapToArray = data => Array.isArray(data) ? data : [data];
-
+const { ApiError } = require('../utils/')
 /**
  * Create a segment based on text
  * @param {String} text 
@@ -22,28 +22,17 @@ const handleSegment = (documentBody, xmlTag) => {
       let paragraphs = mapToArray(documentBody[xmlTag]) // Format paragraphs (in case there is only one paragraph => [paragraph])
       let segmentPromise = [] // Store segment promise array to solve in Promise.all
       let paragraphIdx = [] // Store index of paragraph which contains [w:r] property and _text exists
-      paragraphs = paragraphs.map((paragraph, idx) => {
-        // If paragraph contains no <w:r> => No text => Return synchronously
-        if (!paragraph.hasOwnProperty('w:r')) {
-          return paragraph
-        } 
-  
-        let row = paragraph['w:r']
-        // If row has <w:t> and inside <w:t> row has text and text is not blank => Save segment
-        if (row.hasOwnProperty('w:t') 
-        && row['w:t'].hasOwnProperty('_text') 
-        && row['w:t']['_text']) {
-          paragraphIdx.push(idx)
-          let text = row['w:t']['_text']
-
-          // Push promise segmentCreation into segmentPromise array waitting for Promise.all
-          segmentPromise.push(createSegment(text))
-          return paragraph
-        } else {
-          // Otherwise => Return synchronously
-          return paragraph
+      for (let [idx, paragraph] of paragraphs.entries()) {
+        let text = paragraph?.['w:r']?.['w:t']?.['_text']
+        if (!text) {
+          continue
         }
-      })
+
+        // Indexing segment in json file
+        paragraphIdx.push(idx)
+        // Push promise segmentCreation into segmentPromise array waitting for Promise.all
+        segmentPromise.push(createSegment(text))
+      }
 
       // Now save text as segment into DB
       Promise.all(segmentPromise)
@@ -53,10 +42,9 @@ const handleSegment = (documentBody, xmlTag) => {
             paragraphs[paragraphIdx[idx]]['w:r']._attributes = paragraphs[paragraphIdx[idx]]['w:r']._attributes || {}
             paragraphs[paragraphIdx[idx]]['w:r']._attributes.key = id
           })
-        })
-        .then(() => {
           resolve(paragraphs)
         })
+        .catch(() => reject('Internal Server Error'))
     }
 
     if (xmlTag === 'w:tbl') {
@@ -67,41 +55,30 @@ const handleSegment = (documentBody, xmlTag) => {
       let tableRowIdx = []
       let tableCellIdx = []
       let paragraphIdx = []
-      tables = tables.map((table, tblIdx) => {
+
+      for (let [tblIdx, table] of tables.entries()) {
         let tableRows = mapToArray(table['w:tr'])
-        tableRows = tableRows.map((tableRow, tblRowIdx) => {
+        for (let [tblRowIdx, tableRow] of tableRows.entries()) {
           let tableCells = mapToArray(tableRow['w:tc'])
-          tableCells = tableCells.map((tableCell, tblCellIdx) => {
+          for (let [tblCellIdx, tableCell] of tableCells.entries()) {
             let paragraphs = mapToArray(tableCell['w:p'])
-            paragraphs = paragraphs.map((paragraph, pIdx) => {
-              // If table cell contains no <w:r> => No text => return cell
-              if (!paragraph.hasOwnProperty('w:r')) {
-                return paragraph
+            for (let [idx, paragraph] of paragraphs.entries()) {
+              let text = paragraph?.['w:r']?.['w:t']?.['_text']
+              if (!text) {
+                continue
               }
 
-              let row = paragraph['w:r']
-              if (row.hasOwnProperty('w:t') 
-              && row['w:t'].hasOwnProperty('_text') 
-              && row['w:t']['_text']) {
-                let text = row['w:t']['_text']
-                tableCellIdx.push(tblCellIdx)
-                tableRowIdx.push(tblRowIdx)
-                tableIdx.push(tblIdx)
-                paragraphIdx.push(pIdx)
-  
-                // Push promise segmentCreation into segmentPromise array waitting for Promise.all
-                segmentPromise.push(createSegment(text))
-                return paragraph
-              } else {
-                return paragraph
-              }
-            })
-            return tableCell
-          })
-          return tableRows
-        })
-        return table
-      })
+              tableCellIdx.push(tblCellIdx)
+              tableRowIdx.push(tblRowIdx)
+              tableIdx.push(tblIdx)
+              paragraphIdx.push(idx)
+
+              // Push promise segmentCreation into segmentPromise array waitting for Promise.all
+              segmentPromise.push(createSegment(text))
+            }
+          }
+        }
+      }
 
       // Now save text as segment into DB
       Promise.all(segmentPromise)
@@ -119,10 +96,9 @@ const handleSegment = (documentBody, xmlTag) => {
               tempRow._attributes = tempRow._attributes || {}
               tempRow._attributes.key = id
             })
+            resolve(tables)
           })
-        .then(() => {
-          resolve(tables)
-        })
+        .catch(() => reject('Internal Server Error'))
     }
   })
 }
@@ -130,13 +106,18 @@ const handleSegment = (documentBody, xmlTag) => {
 /**
  * Handle a document object converted from xml docx file.
  * @param {Object} document Document object selected in xml fileService
- * @param {String} xmlTag 'w:r' paragraphs | 'w:tbl' tables
+ * @param {String} xmlTag 'w:p' paragraphs | 'w:tbl' tables
  * @returns {Promise<Document>} Paragraphs | Tables
  */
 const handleDocument =  async (document, xmlTag) => {
-  let documentBody = document['w:body'];
-  let newDocument = handleSegment(documentBody, xmlTag)
-  return newDocument
+  let documentBody = document?.['w:body']
+  if (!documentBody) throw new Error('<w:body> not found in document')
+  
+  try {
+    return handleSegment(documentBody, xmlTag)
+  } catch (err) {
+    throw new ApiError(err.message)
+  }
 }
 
 module.exports = {

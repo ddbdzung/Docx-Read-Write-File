@@ -8,42 +8,6 @@ const AdmZip = require("adm-zip")
 
 const convertXMLToJson = require('xml-js')
 
-const mapToArray = data => Array.isArray(data) ? data : [data];
-
-const handleSavingSegment = (row) => {
-  return new Promise(resolve => {
-    // Khởi tạo row mới với deep copy
-    let newRow = JSON.parse(JSON.stringify(row))
-    // Chỉ lấy mình text
-    const text = row?.['w:t']?.['_text']
-    // Nếu không có text trả về row ban đầu
-    if (!text) return resolve(row)
-
-    // Nếu có text => Trả về row mới có gắn ID của segment
-    segmentModel.create({ text })
-      .then(segment => {
-        newRow._attributes = newRow._attributes || {}
-        newRow._attributes.key = segment._id.toString()
-        return resolve(newRow)
-      })
-  })
-}
-// Return promise array of rows
-const handleRows = (paragraph) => {
-  return new Promise(resolve => {
-    if (paragraph.hasOwnProperty('w:r')) {
-      let rows = mapToArray(paragraph['w:r'])
-      paragraph['w:r'] = []
-      rows.map(row => {
-        let tmp = handleSavingSegment(row)
-        paragraph['w:r'].push(tmp)
-      })
-      Promise.all(paragraph['w:r'])
-        .then(rows => resolve(rows))
-    }
-  })
-}
-
 module.exports = {
   getAllDocument: async (req, res, next) => {
     return res.status(200).json(await documentModel.find())
@@ -64,10 +28,11 @@ module.exports = {
     let documentBuffer = fs.readFileSync(`${path.join(__dirname, '..', 'test', 'word')}\\document.xml`)
     // console.log(`${path.join(__dirname, '..', 'test', 'word')}\\document.xml`)
     // let docPropBuffer= fs.readFileSync("/test/docProps/app.xml")
-    let docPropBuffer = fs.readFileSync(`${path.join(__dirname, '..', 'test', 'docProps')}\\app.xml`)
+    // let docPropBuffer = fs.readFileSync(`${path.join(__dirname, '..', 'test', 'docProps')}\\app.xml`)
+    
     //convert xml to json
     let documentJson = JSON.parse(convertXMLToJson.xml2json(documentBuffer, { compact: true, spaces: 4 }))
-    let docPropsJson = JSON.parse(convertXMLToJson.xml2json(docPropBuffer, { compact: true, spaces: 4 }))
+    // let docPropsJson = JSON.parse(convertXMLToJson.xml2json(docPropBuffer, { compact: true, spaces: 4 }))
 
     // // write result to file json 
     // let err = fs.writeFileSync("./result/" + 'BM04' + ".json", JSON.stringify(documentJson), "utf-8")
@@ -88,11 +53,10 @@ module.exports = {
 
     let document = documentJson['w:document'];
 
-    let paragraphs = await fileService.handleDocument(document, 'w:p')
-    let tables = await fileService.handleDocument(document, 'w:tbl')
-
+    await fileService.handleDocument(document, 'w:p')
+    await fileService.handleDocument(document, 'w:tbl')
     return res.status(200).json({
-      document
+      document,
     })
   }
 }
